@@ -1,0 +1,109 @@
+{
+  "name": "electron-ts-react-vite",
+  "productName": "Electron-ts-react-vite",
+  "version": "1.0.0",
+  "description": "My Electron application description",
+  "main": "dist/main/index.cjs",
+  "author": "rainight",
+  "scripts": {
+    "start": "electron-forge start",
+    "package": "electron-forge package",
+    "make": "electron-forge make",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "build": "vite build --config vite.main.config.ts && vite build --config vite.preload.config.ts && vite build --config vite.processes.config.ts && vite build --config vite.renderer.config.ts",
+    "dist": "npm run build && electron-builder",
+    "publish": "npm run build && electron-builder --publish=always",
+    "test": "npm run test:quick",
+    "test:quick": "ts-node --project tsconfig.test.json test/e2eTestSuite.ts --quick",
+    "test:full": "ts-node --project tsconfig.test.json test/e2eTestSuite.ts",
+    "test:data": "ts-node --project tsconfig.test.json test/testDataGenerator.ts",
+    "test:strategy": "ts-node --project tsconfig.test.json test/sellStrategyTester.ts",
+    "test:monitor": "ts-node --project tsconfig.test.json test/systemMonitor.ts",
+    "test:health": "ts-node --project tsconfig.test.json test/systemMonitor.ts --health",
+    "test:imports": "ts-node --project tsconfig.test.json test/imports-test.ts"
+  },
+  "keywords": [],
+  "license": "MIT",
+  "build": {
+    "appId": "com.yourcompany.myapp",
+    "productName": "memeSOL",
+    "icon": "assets/icon.png",
+    "directories": {
+      "output": "dist-pack"
+    },
+    "files": [
+      "dist/**/*",
+      "preload/**/*",
+      "assets/**/*",
+      "renderer/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "rainightRoot",
+      "repo": "solana-meme-trading-bot"
+    },
+    "win": {
+      "target": "nsis",
+      "verifyUpdateCodeSignature": false
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.finance"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Finance"
+    }
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^7.8.1",
+    "@electron-forge/maker-deb": "^7.8.1",
+    "@electron-forge/maker-rpm": "^7.8.1",
+    "@electron-forge/maker-squirrel": "^7.8.1",
+    "@electron-forge/maker-zip": "^7.8.1",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.8.1",
+    "@electron-forge/plugin-fuses": "^7.8.1",
+    "@electron-forge/plugin-vite": "^7.8.1",
+    "@electron/fuses": "^1.8.0",
+    "@types/electron-squirrel-startup": "^1.0.2",
+    "@types/lodash": "^4.17.19",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@typescript-eslint/eslint-plugin": "^5.62.0",
+    "@typescript-eslint/parser": "^5.62.0",
+    "electron": "37.0.0",
+    "eslint": "^8.57.1",
+    "eslint-plugin-import": "^2.32.0",
+    "node-fetch": "^3.3.1",
+    "ts-node": "^10.9.2",
+    "typescript": "~4.5.4",
+    "vite": "^5.4.19",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^6.0.0",
+    "@electron-toolkit/utils": "^4.0.0",
+    "@jup-ag/api": "^6.0.44",
+    "@solana/web3.js": "^1.98.2",
+    "@types/sqlite3": "^3.1.11",
+    "@vitejs/plugin-react": "^4.6.0",
+    "antd": "^5.26.3",
+    "bs58": "^6.0.0",
+    "cross-fetch": "^4.1.0",
+    "electron-log": "^5.4.1",
+    "electron-squirrel-startup": "^1.0.1",
+    "electron-store": "^8.2.0",
+    "electron-updater": "^6.6.2",
+    "lodash": "^4.17.21",
+    "proxy-agent": "^6.5.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "sqlite3": "^5.1.7",
+    "uuid": "^11.1.0"
+  }
+}
