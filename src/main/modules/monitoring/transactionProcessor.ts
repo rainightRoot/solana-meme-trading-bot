@@ -80,7 +80,7 @@ export async function processSlotAndBuy(slot: number) {
       const { tradingOpportunities, blockInfo } = processResult.data;
       
       if (tradingOpportunities && tradingOpportunities.length > 0) {
-        solanaLogger.info(`发现 ${tradingOpportunities.length} 个跟单机会`);
+        solanaLogger.info(`发现 ${tradingOpportunities.length} 个交易机会 (基于余额变化分析)`);
         
         // 处理跟单机会（在主进程中执行，因为涉及钱包操作）
         for (const opportunity of tradingOpportunities) {
@@ -120,19 +120,37 @@ export async function processSlotAndBuy(slot: number) {
  */
 async function handleTradingOpportunity(opportunity: any) {
   try {
-    solanaLogger.info(`[跟单机会] 
-      监控地址: ${opportunity.signer}
-      交易: ${opportunity.txUrl}
-      买入 Token: ${opportunity.tokenMint}
-      买入数量: ${opportunity.amountBought}
-      花费 SOL: ${opportunity.solSpent}
-    `);
+    const opportunityType = opportunity.type || 'unknown';
+    
+    if (opportunityType === 'buy_opportunity') {
+      solanaLogger.info(`[通用买入机会] 
+        监控地址: ${opportunity.signer}
+        交易: ${opportunity.txUrl}
+        买入 Token: ${opportunity.tokenMint}
+        买入数量: ${opportunity.amountBought}
+        花费 SOL: ${opportunity.solSpent||0}
+      `);
 
-    const followAmount = configManager.getNested<number>('solana.followAmount');
-    if (followAmount && followAmount > 0) {
-      await followUpBuy(opportunity.tokenMint, followAmount);
+      const followAmount = configManager.getNested<number>('solana.followAmount');
+      if (followAmount && followAmount > 0) {
+        await followUpBuy(opportunity.tokenMint, followAmount);
+      } else {
+        solanaLogger.warn('未配置跟单金额 (solana.followAmount)，跳过跟单');
+      }
+    } else if (opportunityType === 'sell_opportunity') {
+      solanaLogger.info(`[通用卖出机会] 
+        监控地址: ${opportunity.signer}
+        交易: ${opportunity.txUrl}
+        卖出 Token: ${opportunity.tokenMint}
+        卖出数量: ${opportunity.amountSold}
+        获得 SOL: ${opportunity.solReceived}
+      `);
+
+      // 这里可以添加卖出跟单逻辑
+      // 例如：await followUpSell(opportunity.tokenMint, opportunity.amountSold);
+      solanaLogger.info('卖出机会暂时不执行跟单，仅记录');
     } else {
-      solanaLogger.warn('未配置跟单金额 (solana.followAmount)，跳过跟单');
+      solanaLogger.warn(`未知的交易机会类型: ${opportunityType}`, { opportunity });
     }
   } catch (error: any) {
     solanaLogger.error('处理跟单机会失败:', error.message);
