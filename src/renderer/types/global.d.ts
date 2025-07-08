@@ -54,7 +54,7 @@ declare global {
 
       // 队列管理 API
       clearQueue: (channel?: string) => Promise<{ success: boolean }>;
-      scanBlock: (block?: number) => Promise<boolean>;
+      scanBlock: (block: number | string) => Promise<{ success: boolean; block: number; duration: number; message: string }>;
 
       // 持仓卖出 API
       sellPosition: (tokenMint: string, walletAddress: string, sellRatio: number) => Promise<{ success: boolean; txSignature: string; sellAmount: number }>;

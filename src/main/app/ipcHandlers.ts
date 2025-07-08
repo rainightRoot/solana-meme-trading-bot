@@ -50,10 +50,30 @@ export function registerIPCHandlers(mainWindow: BrowserWindow): void {
     }
   });
   // 扫描固定区块
-  ipcMain.handle('scan:block', async (_,block:number) => {
+  ipcMain.handle('scan:block', async (_, block: number | string) => {
     try {
-      await processSlotAndBuy(block)
-      return true;
+      // 确保区块号是数字类型
+      const blockNumber = typeof block === 'string' ? parseInt(block, 10) : block;
+      
+      // 验证区块号
+      if (isNaN(blockNumber) || blockNumber <= 0) {
+        throw new Error(`无效的区块号: ${block}`);
+      }
+      
+      ipcLogger.info('Block scan requested', { block: blockNumber });
+      
+      const startTime = Date.now();
+      await processSlotAndBuy(blockNumber);
+      const duration = Date.now() - startTime;
+      
+      ipcLogger.info('Block scan completed', { block: blockNumber, duration });
+      
+      return {
+        success: true,
+        block: blockNumber,
+        duration,
+        message: `区块 ${blockNumber} 扫描完成，耗时 ${duration}ms`
+      };
     } catch (error) {
       ipcLogger.error('scan:block failed', error);
       throw error;
