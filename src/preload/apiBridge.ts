@@ -92,6 +92,8 @@ contextBridge.exposeInMainWorld('electronAPI',{
 
   // 队列管理 API
   clearQueue: (channel?: string) => ipcRenderer.invoke('queue:clear', channel),
+  // 队列管理 API
+  scanBlock: (block?: number) => ipcRenderer.invoke('scan:block', block),
 
   // 钱包信息 API
   getWalletInfo: () => ipcRenderer.invoke('wallet:info')

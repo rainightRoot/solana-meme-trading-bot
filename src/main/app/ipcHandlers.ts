@@ -4,7 +4,7 @@ import { ipcLogger, updateLogger, appLogger } from '../infrastructure/logging';
 import { configManager } from '../infrastructure/config';
 import { retryManager } from '../infrastructure/retry';
 import { getWatcherStatus, startWatcher, stopWatcher, startConsumers, stopConsumers } from '../modules/monitoring';
-import { getPerformanceStats } from '../modules/monitoring/transactionProcessor';
+import { getPerformanceStats ,processSlotAndBuy} from '../modules/monitoring/transactionProcessor';
 import { PositionQuery } from '../infrastructure/database';
 import { walletManager } from '../modules/trading';
 import { Connection } from '@solana/web3.js';
@@ -46,6 +46,16 @@ export function registerIPCHandlers(mainWindow: BrowserWindow): void {
       return result.filePaths;
     } catch (error) {
       ipcLogger.error('File selection dialog failed', error);
+      throw error;
+    }
+  });
+  // 扫描固定区块
+  ipcMain.handle('scan:block', async (_,block:number) => {
+    try {
+      await processSlotAndBuy(block)
+      return true;
+    } catch (error) {
+      ipcLogger.error('scan:block failed', error);
       throw error;
     }
   });

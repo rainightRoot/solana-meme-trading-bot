@@ -8,6 +8,8 @@ import {
   Col,
   Space,
   Typography,
+  Form,
+  Input,
   Statistic,
   Drawer,
   Tag,
@@ -47,7 +49,7 @@ interface LogEntry {
 export default function App() {
   const [version, setVersion] = useState('');
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  let config:any = {}
+  let config: any = {}
   const [watcherStatus, setWatcherStatus] = useState<any>(null);
   const [consumersRunning, setConsumersRunning] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
@@ -56,11 +58,13 @@ export default function App() {
   const [walletInfo, setWalletInfo] = useState<{ address: string; balance: number } | null>(null);
   const [startWatcherLoading, setStartWatcherLoading] = useState(false);
   const [stopWatcherLoading, setStopWatcherLoading] = useState(false);
+  const [startScanLoading, setStartScanLoading] = useState(false);
+
   const [clearQueueLoading, setClearQueueLoading] = useState(false);
   const [showMonitoringPanel, setShowMonitoringPanel] = useState(false);
   const logContentRef = useRef<HTMLDivElement>(null);
   const errorLogContentRef = useRef<HTMLDivElement>(null);
-
+  const [form] = Form.useForm();
   // 日志级别层次 (数字越小级别越高)
   const logLevels = {
     'error': 0,
@@ -87,7 +91,7 @@ export default function App() {
     const loadConfig = async () => {
       try {
         const configData = await window.electronAPI.getConfig();
-        config = {...configData}
+        config = { ...configData }
       } catch (error) {
         console.error('Failed to load config:', error);
       }
@@ -100,14 +104,13 @@ export default function App() {
     // 监听配置变化
     window.electronAPI.onConfigChange((newConfig: any) => {
       console.log('配置已更新，新的日志级别:', newConfig.logging?.level);
-      config= {...newConfig}
+      config = { ...newConfig }
     });
 
     // 设置日志接收监听器
     window.electronAPI.onMainLog((logEntry: LogEntry) => {
       const configLevel = config?.logging?.level?.toLowerCase();
       const currentLogLevel = logEntry.level.toLowerCase();
-      console.log('logEntry', logEntry,configLevel,currentLogLevel,logLevels[currentLogLevel as keyof typeof logLevels],logLevels[configLevel as keyof typeof logLevels],configLevel && logLevels[currentLogLevel as keyof typeof logLevels] <= logLevels[configLevel as keyof typeof logLevels]);
       if (configLevel && logLevels[currentLogLevel as keyof typeof logLevels] <= logLevels[configLevel as keyof typeof logLevels]) {
 
         setLogs(prevLogs => {
@@ -137,6 +140,17 @@ export default function App() {
     };
   }, []);
 
+  const startScan = async (values: any) => {
+    try {
+      setStartScanLoading(true);
+      await window.electronAPI.scanBlock(form.getFieldValue('block') as number || 1);
+    } catch (error) {
+      console.error('Failed to start scan:', error);
+    } finally {
+      setStartScanLoading(false);
+      form.setFieldsValue({ block: null });
+    }
+  }
   // 自动滚动到顶部（倒序显示，最新日志在顶部）
   // useEffect(() => {
   //   if (logContentRef.current) {
@@ -166,8 +180,8 @@ export default function App() {
     try {
       setStartWatcherLoading(true);
       await window.electronAPI.clearQueue('SlotUpdate');
-      await window.electronAPI.startWatcher();
       await window.electronAPI.startConsumers();
+      // await window.electronAPI.startWatcher();
       setConsumersRunning(true);
       getWatcherStatus();
     } catch (error) {
@@ -540,8 +554,33 @@ export default function App() {
                     </Space>
                   </Card>
                 </Col>
+                <Col xs={24} md={12}>
+                  <Card size="small" title="扫描区块" bordered={false} style={{ background: '#fafafa' }}>
+                    <Form form={form} onFinish={startScan}>
+                      <Space size="small" style={{ height: '40px' }}>
+                        <Form.Item
+                          name={'block'}
+                          rules={[{ required: true, message: '请输入slot' }]}
+                          style={{ height: '40px', marginBottom: 0 }}
+                        >
+                          <Input placeholder="1" style={{ marginTop: '4px' }} />
+                        </Form.Item>
+                        <Button
+                          type="primary"
+                          icon={<PlayCircleOutlined />}
+                          htmlType='submit'
+                          loading={startScanLoading}
+                          disabled={startScanLoading}
+                          size="middle"
+                        >
+                          开始扫描
+                        </Button>
+                      </Space>
+                    </Form>
+                  </Card>
+                </Col>
 
-                
+
               </Row>
             </Card>
 

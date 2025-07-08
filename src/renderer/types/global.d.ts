@@ -1,4 +1,4 @@
-export {};
+export { };
 
 interface LogEntry {
   timestamp: string;
@@ -11,13 +11,13 @@ declare global {
   interface Window {
     electronAPI: {
       getAppVersion: () => Promise<string>;
-      logMessage:(msg:string)=>void;
-      onMainLog:(cb:(logEntry: LogEntry) => void) => void;
-      sendToSet:(data:any)=>void;
+      logMessage: (msg: string) => void;
+      onMainLog: (cb: (logEntry: LogEntry) => void) => void;
+      sendToSet: (data: any) => void;
       sendPing: () => void;
       onPong: (cb: (msg: string) => void) => void;
-      onSetFromMain:(cb:(data:any)=>void)=>void;
-      showNotification:(title: string, body: string) =>void;
+      onSetFromMain: (cb: (data: any) => void) => void;
+      showNotification: (title: string, body: string) => void;
       selectFiles: () => Promise<string[]>;
       openLink: (url: string) => void;
       checkUpdate: () => void;
@@ -31,16 +31,16 @@ declare global {
       getWatcherStatus: () => Promise<any>;
       startWatcher: () => Promise<void>;
       stopWatcher: () => Promise<void>;
-              startConsumers: () => Promise<any>;
-        stopConsumers: () => Promise<any>;
-      
-        // 监控状态 API
-  getMonitoringStatus: () => Promise<MonitoringStatusResponse>;
+      startConsumers: () => Promise<any>;
+      stopConsumers: () => Promise<any>;
 
-  // 重试统计 API
-  getRetryStats: (context?: string) => Promise<RetryStatsResponse>;
-  clearRetryStats: (context?: string) => Promise<{ success: boolean; error?: string }>;
-      
+      // 监控状态 API
+      getMonitoringStatus: () => Promise<MonitoringStatusResponse>;
+
+      // 重试统计 API
+      getRetryStats: (context?: string) => Promise<RetryStatsResponse>;
+      clearRetryStats: (context?: string) => Promise<{ success: boolean; error?: string }>;
+
       // 持仓管理 API
       getPositions: (query?: PositionQuery) => Promise<Position[]>;
       getPosition: (tokenMint: string, walletAddress: string) => Promise<Position | null>;
@@ -48,15 +48,16 @@ declare global {
       getPositionStats: (walletAddress?: string) => Promise<PositionStats>;
       updatePositionPrice: (tokenMint: string, walletAddress: string, priceSol: number, priceUsd: number) => Promise<boolean>;
       deletePosition: (tokenMint: string, walletAddress: string) => Promise<boolean>;
-      
+
       // 钱包 API
-      getWalletInfo: () => Promise<{address: string; balance: number}>;
-      
+      getWalletInfo: () => Promise<{ address: string; balance: number }>;
+
       // 队列管理 API
-      clearQueue: (channel?: string) => Promise<{success: boolean}>;
-      
+      clearQueue: (channel?: string) => Promise<{ success: boolean }>;
+      scanBlock: (block?: number) => Promise<boolean>;
+
       // 持仓卖出 API
-      sellPosition: (tokenMint: string, walletAddress: string, sellRatio: number) => Promise<{success: boolean; txSignature: string; sellAmount: number}>;
+      sellPosition: (tokenMint: string, walletAddress: string, sellRatio: number) => Promise<{ success: boolean; txSignature: string; sellAmount: number }>;
     };
   }
 }

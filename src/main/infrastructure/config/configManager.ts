@@ -296,6 +296,7 @@ class ConfigManager extends EventEmitter {
       });
 
     } catch (error) {
+      appLogger.error('ConfigManager initializeStore error', error);
       this.isTestMode = true;
       appLogger.info('使用测试模式配置管理器');
     }
