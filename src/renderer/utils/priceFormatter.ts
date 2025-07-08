@@ -121,27 +121,30 @@ export function formatNumberSmart(num: number): string {
       return sign + abs.toLocaleString('en-US');
     }
 
-    // Small numbers < 1
-    const str = abs.toString();
-    const match = /^0\.0*(\d+)/.exec(str);
-    if (match && str.startsWith('0.0')) {
-      const zeros = str.split('.')[1].match(/^0+/)?.[0].length || 0;
-      return `${sign}0.0${toSubscript(zeros.toString())}${match[1]}`;
+    // Small decimals < 1
+    const str = abs.toString(); // e.g. '0.003212312'
+    const match = /^0\.(0*)(\d+)/.exec(str);
+    if (match) {
+      const leadingZeros = match[1].length;
+      const digits = match[2].slice(0, 5); // 可调整精度
+      return `${sign}0.0${toSubscript(leadingZeros.toString())}${digits}`;
     }
 
     return sign + str;
   }
 
   // Scientific notation
-  const parts = abs.toExponential().split('e');
-  const base = parseFloat(parts[0]);
-  const exp = parseInt(parts[1]);
+  const [baseStr, expStr] = abs.toExponential().split('e');
+  const base = parseFloat(baseStr);
+  const exp = parseInt(expStr);
 
   if (exp > 0) {
-    return sign + Number(num).toLocaleString('en-US', { maximumFractionDigits: 20 });
+    return sign + Number(num).toLocaleString('en-US', {
+      maximumFractionDigits: 20
+    });
   }
 
-  // Negative exponent: e.g., 1.2e-10 → 0.0₉12
-  const digits = base.toString().replace('.', '');
+  // e.g. 1.2e-10 → 0.0₉12
+  const digits = baseStr.replace('.', '').slice(0, 5); // 保留前5位有效数字
   return `${sign}0.0${toSubscript((Math.abs(exp) - 1).toString())}${digits}`;
 }

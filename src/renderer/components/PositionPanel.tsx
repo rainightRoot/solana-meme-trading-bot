@@ -213,7 +213,7 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
       <div style={{ textAlign: isSmall ? 'left' : 'center' }}>
         <div style={{ color, fontWeight: '600', fontSize: isSmall ? '14px' : '16px' }}>
           {icon && <span style={{ marginRight: '4px' }}>{icon}</span>}
-          {formatNumberSmart(pnlSol)} SOL
+          {formatNumberSmart(pnlSol)}
         </div>
         <div style={{ color: '#999', fontSize: '12px' }}>
           {formatNumberSmart(pnlUsd)}
@@ -458,7 +458,7 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
             <Card size="small">
               <Statistic
                 title="未实现盈亏"
-                value={stats.total_unrealized_pnl_sol}
+                value={formatNumberSmart(stats.total_unrealized_pnl_sol)}
                 precision={4}
                 suffix="SOL"
                 prefix={stats.total_unrealized_pnl_sol >= 0 ? <RiseOutlined /> : <FallOutlined />}
@@ -618,7 +618,7 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
                 <Col span={12}>
                   <Text strong>预计收入: </Text>
                   <Text style={{ color: '#52c41a' }}>
-                    {formatNumberSmart(selectedPosition.current_amount * sellRatio * selectedPosition.current_price_sol)}
+                    {formatNumberSmart(selectedPosition.current_amount * sellRatio * selectedPosition.current_price_sol)} Sol
                   </Text>
                 </Col>
               </Row>
