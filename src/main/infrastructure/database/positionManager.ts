@@ -1,12 +1,32 @@
 import { DatabaseManager } from './databaseManager';
 import { Position, TradeRecord, PositionStats, PositionQuery, PositionModel } from './models/position';
 import { appLogger } from '../logging';
+import { Connection } from '@solana/web3.js';
+import { configManager } from '../config';
+import { getProxyAgent } from '../network';
+import fetch from 'cross-fetch';
 
 export class PositionManager {
   private db: DatabaseManager;
 
   constructor(db: DatabaseManager) {
     this.db = db;
+  }
+
+  /**
+   * 获取 Solana 连接
+   */
+  private getConnection(): Connection {
+    const agent = getProxyAgent();
+    const customFetch = (url: any, options: any) => {
+      return fetch(url, { ...options, agent: agent as any });
+    };
+
+    const rpcUrl = configManager.getNested<string>('solana.rpcUrl') || 'https://api.mainnet-beta.solana.com';
+    return new Connection(rpcUrl, {
+      commitment: 'confirmed',
+      fetch: customFetch as any,
+    });
   }
 
   /**
@@ -39,19 +59,35 @@ export class PositionManager {
       let positionId: number;
 
       if (!position) {
-        // 创建新持仓
+        // 创建新持仓时获取代币元数据
+        const connection = this.getConnection();
+        let tokenSymbol: string | null = null;
+        let tokenName: string | null = null;
+
+        try {
+          const { getTokenMetadata } = await import('../../modules/trading/tradeExecutor');
+          const metadata = await getTokenMetadata(trade.token_mint, connection);
+          if (metadata) {
+            tokenSymbol = metadata.symbol;
+            tokenName = metadata.name;
+            appLogger.info(`获取代币元数据: ${trade.token_mint} -> ${tokenSymbol} (${tokenName})`);
+          }
+        } catch (error: any) {
+          appLogger.warn(`获取代币元数据失败: ${trade.token_mint} - ${error.message}`);
+        }
+
         const newPosition = PositionModel.createNewPosition(trade);
         const result = await this.db.run(
           `INSERT INTO positions (
-            token_mint, wallet_address, status, total_buy_amount, total_buy_cost_sol, 
+            token_mint, token_symbol, token_name, wallet_address, status, total_buy_amount, total_buy_cost_sol, 
             total_buy_cost_usd, total_sell_amount, total_sell_value_sol, total_sell_value_usd,
             avg_buy_price_sol, avg_buy_price_usd, current_amount, realized_pnl_sol, 
             realized_pnl_usd, unrealized_pnl_sol, unrealized_pnl_usd, current_price_sol,
             current_price_usd, sell_strategy_phase, peak_price_sol, peak_price_usd, peak_time,
             last_sell_time, first_buy_at, last_trade_at, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
-            newPosition.token_mint, newPosition.wallet_address, newPosition.status,
+            newPosition.token_mint, tokenSymbol, tokenName, newPosition.wallet_address, newPosition.status,
             newPosition.total_buy_amount, newPosition.total_buy_cost_sol, newPosition.total_buy_cost_usd,
             newPosition.total_sell_amount, newPosition.total_sell_value_sol, newPosition.total_sell_value_usd,
             newPosition.avg_buy_price_sol, newPosition.avg_buy_price_usd, newPosition.current_amount,
@@ -63,33 +99,78 @@ export class PositionManager {
           ]
         );
         positionId = result.lastID!;
-        appLogger.info(`创建新持仓: ${trade.token_mint} for wallet ${trade.wallet_address}`);
+        appLogger.info(`创建新持仓: ${trade.token_mint} (${tokenSymbol || 'Unknown'}) for wallet ${trade.wallet_address}`);
       } else {
-        // 更新现有持仓
-        const updatedPosition = PositionModel.updatePositionWithTrade(position, trade);
-        await this.db.run(
-          `UPDATE positions SET
-            total_buy_amount = ?, total_buy_cost_sol = ?, total_buy_cost_usd = ?,
-            total_sell_amount = ?, total_sell_value_sol = ?, total_sell_value_usd = ?,
-            avg_buy_price_sol = ?, avg_buy_price_usd = ?, current_amount = ?,
-            realized_pnl_sol = ?, realized_pnl_usd = ?, unrealized_pnl_sol = ?,
-            unrealized_pnl_usd = ?, current_price_sol = ?, current_price_usd = ?,
-            sell_strategy_phase = ?, peak_price_sol = ?, peak_price_usd = ?, peak_time = ?,
-            last_sell_time = ?, status = ?, last_trade_at = ?, updated_at = ?
-          WHERE id = ?`,
-          [
-            updatedPosition.total_buy_amount, updatedPosition.total_buy_cost_sol, updatedPosition.total_buy_cost_usd,
-            updatedPosition.total_sell_amount, updatedPosition.total_sell_value_sol, updatedPosition.total_sell_value_usd,
-            updatedPosition.avg_buy_price_sol, updatedPosition.avg_buy_price_usd, updatedPosition.current_amount,
-            updatedPosition.realized_pnl_sol, updatedPosition.realized_pnl_usd, updatedPosition.unrealized_pnl_sol,
-            updatedPosition.unrealized_pnl_usd, updatedPosition.current_price_sol, updatedPosition.current_price_usd,
-            updatedPosition.sell_strategy_phase, updatedPosition.peak_price_sol, updatedPosition.peak_price_usd,
-            updatedPosition.peak_time, updatedPosition.last_sell_time, updatedPosition.status,
-            updatedPosition.last_trade_at, updatedPosition.updated_at, position.id
-          ]
-        );
+        // 更新现有持仓 - 如果元数据为空，尝试获取
+        if (!position.token_symbol || !position.token_name) {
+          const connection = this.getConnection();
+          let tokenSymbol: string | null = position.token_symbol;
+          let tokenName: string | null = position.token_name;
+
+          try {
+            const { getTokenMetadata } = await import('../../modules/trading/tradeExecutor');
+            const metadata = await getTokenMetadata(trade.token_mint, connection);
+            if (metadata) {
+              tokenSymbol = metadata.symbol;
+              tokenName = metadata.name;
+              appLogger.info(`补充代币元数据: ${trade.token_mint} -> ${tokenSymbol} (${tokenName})`);
+            }
+          } catch (error: any) {
+            appLogger.warn(`获取代币元数据失败: ${trade.token_mint} - ${error.message}`);
+          }
+
+          // 更新持仓包含元数据
+          const updatedPosition = PositionModel.updatePositionWithTrade(position, trade);
+          await this.db.run(
+            `UPDATE positions SET
+              token_symbol = ?, token_name = ?,
+              total_buy_amount = ?, total_buy_cost_sol = ?, total_buy_cost_usd = ?,
+              total_sell_amount = ?, total_sell_value_sol = ?, total_sell_value_usd = ?,
+              avg_buy_price_sol = ?, avg_buy_price_usd = ?, current_amount = ?,
+              realized_pnl_sol = ?, realized_pnl_usd = ?, unrealized_pnl_sol = ?,
+              unrealized_pnl_usd = ?, current_price_sol = ?, current_price_usd = ?,
+              sell_strategy_phase = ?, peak_price_sol = ?, peak_price_usd = ?, peak_time = ?,
+              last_sell_time = ?, status = ?, last_trade_at = ?, updated_at = ?
+            WHERE id = ?`,
+            [
+              tokenSymbol, tokenName,
+              updatedPosition.total_buy_amount, updatedPosition.total_buy_cost_sol, updatedPosition.total_buy_cost_usd,
+              updatedPosition.total_sell_amount, updatedPosition.total_sell_value_sol, updatedPosition.total_sell_value_usd,
+              updatedPosition.avg_buy_price_sol, updatedPosition.avg_buy_price_usd, updatedPosition.current_amount,
+              updatedPosition.realized_pnl_sol, updatedPosition.realized_pnl_usd, updatedPosition.unrealized_pnl_sol,
+              updatedPosition.unrealized_pnl_usd, updatedPosition.current_price_sol, updatedPosition.current_price_usd,
+              updatedPosition.sell_strategy_phase, updatedPosition.peak_price_sol, updatedPosition.peak_price_usd,
+              updatedPosition.peak_time, updatedPosition.last_sell_time, updatedPosition.status,
+              updatedPosition.last_trade_at, updatedPosition.updated_at, position.id
+            ]
+          );
+        } else {
+          // 正常更新持仓（已有元数据）
+          const updatedPosition = PositionModel.updatePositionWithTrade(position, trade);
+          await this.db.run(
+            `UPDATE positions SET
+              total_buy_amount = ?, total_buy_cost_sol = ?, total_buy_cost_usd = ?,
+              total_sell_amount = ?, total_sell_value_sol = ?, total_sell_value_usd = ?,
+              avg_buy_price_sol = ?, avg_buy_price_usd = ?, current_amount = ?,
+              realized_pnl_sol = ?, realized_pnl_usd = ?, unrealized_pnl_sol = ?,
+              unrealized_pnl_usd = ?, current_price_sol = ?, current_price_usd = ?,
+              sell_strategy_phase = ?, peak_price_sol = ?, peak_price_usd = ?, peak_time = ?,
+              last_sell_time = ?, status = ?, last_trade_at = ?, updated_at = ?
+            WHERE id = ?`,
+            [
+              updatedPosition.total_buy_amount, updatedPosition.total_buy_cost_sol, updatedPosition.total_buy_cost_usd,
+              updatedPosition.total_sell_amount, updatedPosition.total_sell_value_sol, updatedPosition.total_sell_value_usd,
+              updatedPosition.avg_buy_price_sol, updatedPosition.avg_buy_price_usd, updatedPosition.current_amount,
+              updatedPosition.realized_pnl_sol, updatedPosition.realized_pnl_usd, updatedPosition.unrealized_pnl_sol,
+              updatedPosition.unrealized_pnl_usd, updatedPosition.current_price_sol, updatedPosition.current_price_usd,
+              updatedPosition.sell_strategy_phase, updatedPosition.peak_price_sol, updatedPosition.peak_price_usd,
+              updatedPosition.peak_time, updatedPosition.last_sell_time, updatedPosition.status,
+              updatedPosition.last_trade_at, updatedPosition.updated_at, position.id
+            ]
+          );
+        }
         positionId = position.id!;
-        appLogger.info(`更新持仓: ${trade.token_mint} for wallet ${trade.wallet_address}`);
+        appLogger.info(`更新持仓: ${trade.token_mint} (${position.token_symbol || 'Unknown'}) for wallet ${trade.wallet_address}`);
       }
 
       // 3. 记录交易
@@ -115,6 +196,60 @@ export class PositionManager {
       await this.db.rollback();
       appLogger.error('记录交易失败:', error.message);
       return false;
+    }
+  }
+
+  /**
+   * 批量更新缺少元数据的持仓
+   * @param limit 每次处理的持仓数量限制
+   * @returns 更新的持仓数量
+   */
+  async updateMissingTokenMetadata(limit = 20): Promise<number> {
+    try {
+      // 获取所有缺少元数据的持仓
+      const positions = await this.db.all<Position>(
+        `SELECT id, token_mint, token_symbol, token_name FROM positions 
+         WHERE token_symbol IS NULL OR token_name IS NULL OR token_symbol = '' OR token_name = ''
+         LIMIT ?`,
+        [limit]
+      );
+
+      if (positions.length === 0) {
+        appLogger.info('没有需要更新元数据的持仓');
+        return 0;
+      }
+
+      const connection = this.getConnection();
+      let updatedCount = 0;
+
+      for (const position of positions) {
+        try {
+          const { getTokenMetadata } = await import('../../modules/trading/tradeExecutor');
+          const metadata = await getTokenMetadata(position.token_mint, connection);
+          
+          if (metadata) {
+            await this.db.run(
+              'UPDATE positions SET token_symbol = ?, token_name = ?, updated_at = ? WHERE id = ?',
+              [metadata.symbol, metadata.name, new Date().toISOString(), position.id]
+            );
+            updatedCount++;
+            appLogger.info(`更新持仓元数据: ${position.token_mint} -> ${metadata.symbol} (${metadata.name})`);
+          } else {
+            appLogger.warn(`无法获取代币元数据: ${position.token_mint}`);
+          }
+        } catch (error: any) {
+          appLogger.error(`更新持仓 ${position.token_mint} 元数据失败:`, error.message);
+        }
+
+        // 添加小延迟避免过于频繁的请求
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+
+      appLogger.info(`批量更新元数据完成: ${updatedCount}/${positions.length} 个持仓已更新`);
+      return updatedCount;
+    } catch (error: any) {
+      appLogger.error('批量更新代币元数据失败:', error.message);
+      return 0;
     }
   }
 

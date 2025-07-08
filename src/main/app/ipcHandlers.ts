@@ -337,6 +337,20 @@ export function registerIPCHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
+  // 批量更新代币元数据
+  ipcMain.handle('positions:update-metadata', async (_, limit?: number) => {
+    try {
+      ipcLogger.info('Token metadata update requested', { limit });
+      if (!positionManager) {
+        throw new Error('数据库未初始化');
+      }
+      return await positionManager.updateMissingTokenMetadata(limit);
+    } catch (error) {
+      appLogger.error('批量更新代币元数据失败:', error instanceof Error ? error.message : error);
+      throw error;
+    }
+  });
+
   // 手动卖出持仓
   ipcMain.handle('positions:sell', async (_, tokenMint: string, walletAddress: string, sellRatio: number) => {
     try {

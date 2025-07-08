@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Table, 
-  Statistic, 
-  Row, 
-  Col, 
-  Card, 
-  Tag, 
-  Button, 
-  Space, 
-  Typography, 
-  Spin, 
+import {
+  Table,
+  Statistic,
+  Row,
+  Col,
+  Card,
+  Tag,
+  Button,
+  Space,
+  Typography,
+  Spin,
   Empty,
   Tabs,
   Tooltip,
@@ -105,12 +105,17 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
   const [stats, setStats] = useState<PositionStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'open' | 'closed' | 'all'>('open');
-  
+
   // 卖出功能相关状态
   const [sellModalVisible, setSellModalVisible] = useState(false);
   const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
   const [sellRatio, setSellRatio] = useState(0.5); // 默认卖出50%
   const [sellLoading, setSellLoading] = useState(false);
+
+  // 批量更新代币元数据状态
+  const [isLoading, setIsLoading] = useState(false);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [isUpdatingMetadata, setIsUpdatingMetadata] = useState(false);
 
   // 获取持仓数据
   const fetchPositions = async () => {
@@ -123,18 +128,39 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
         order_dir: 'DESC',
         limit: 50
       };
-      
+
       const [positionsData, statsData] = await Promise.all([
         window.electronAPI.getPositions(query),
         window.electronAPI.getPositionStats(walletAddress)
       ]);
-      
+
       setPositions(positionsData);
       setStats(statsData);
     } catch (error) {
       console.error('获取持仓数据失败:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 批量更新代币元数据
+  const updateTokenMetadata = async () => {
+    try {
+      setIsUpdatingMetadata(true);
+      const updatedCount = await window.electronAPI.updatePositionMetadata(20);
+
+      if (updatedCount > 0) {
+        message.success(`成功更新 ${updatedCount} 个持仓的代币元数据`);
+        // 刷新持仓数据
+        await fetchPositions();
+      } else {
+        message.info('所有持仓都已有代币元数据');
+      }
+    } catch (error) {
+      console.error('Failed to update token metadata:', error);
+      message.error('更新代币元数据失败');
+    } finally {
+      setIsUpdatingMetadata(false);
     }
   };
 
@@ -153,6 +179,7 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
   const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
+      message.success('复制成功');
     } catch (err) {
       console.error('复制失败:', err);
     }
@@ -183,12 +210,12 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
   // 按比例卖出
   const sellByRatio = async () => {
     if (!selectedPosition) return;
-    
+
     try {
       setSellLoading(true);
       const result = await window.electronAPI.sellPosition(
-        selectedPosition.token_mint, 
-        selectedPosition.wallet_address, 
+        selectedPosition.token_mint,
+        selectedPosition.wallet_address,
         sellRatio
       );
       message.success(`卖出成功！交易签名: ${result.txSignature}`);
@@ -208,7 +235,7 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
     const isNegative = pnlSol < 0;
     const color = isPositive ? '#52c41a' : isNegative ? '#ff4d4f' : '#666';
     const icon = isPositive ? <RiseOutlined /> : isNegative ? <FallOutlined /> : null;
-    
+
     return (
       <div style={{ textAlign: isSmall ? 'left' : 'center' }}>
         <div style={{ color, fontWeight: '600', fontSize: isSmall ? '14px' : '16px' }}>
@@ -233,22 +260,23 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Tooltip title={mint}>
-              <Text code style={{ fontSize: '12px' }}>
+              {record.token_symbol ? (
+                <Tag color="blue" style={{ marginTop: '4px', fontSize: '12px' }}>
+                  {record.token_symbol}
+                </Tag>
+              ) : <Text code style={{ fontSize: '12px' }}>
                 {formatTokenMint(mint)}
-              </Text>
+              </Text>}
+
             </Tooltip>
-            <Button 
-              type="text" 
-              size="small" 
+            <Button
+              type="text"
+              size="small"
               icon={<CopyOutlined />}
               onClick={() => copyToClipboard(mint)}
             />
           </div>
-          {record.token_symbol && (
-            <Tag color="blue" style={{ marginTop: '4px', fontSize: '12px' }}>
-              {record.token_symbol}
-            </Tag>
-          )}
+
         </div>
       ),
     },
@@ -297,7 +325,7 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
       key: 'unrealized_pnl',
       width: 150,
       align: 'center',
-      render: (record: Position) => 
+      render: (record: Position) =>
         getPnLDisplay(record.unrealized_pnl_sol, record.unrealized_pnl_usd, true),
     },
     {
@@ -333,7 +361,7 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
         if (record.status !== 'open' || record.current_amount <= 0) {
           return <Text type="secondary">-</Text>;
         }
-        
+
         return (
           <Space size="small">
             <Tooltip title="按比例卖出">
@@ -428,24 +456,24 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
                 precision={4}
                 suffix="SOL"
                 prefix={<DollarOutlined />}
-                valueStyle={{ color: '#1890ff',fontSize:'16px' }}
+                valueStyle={{ color: '#1890ff', fontSize: '16px' }}
               />
               <Text type="secondary" style={{ fontSize: '12px' }}>
                 {formatNumberSmart(stats.total_invested_usd)}
               </Text>
             </Card>
           </Col>
-          
+
           <Col xs={24} sm={12} md={6}>
             <Card size="small">
               <Statistic
                 title="已实现盈亏"
-                value={stats.total_realized_pnl_sol}
+                value={formatNumberSmart(stats.total_realized_pnl_sol)}
                 precision={4}
                 suffix="SOL"
                 prefix={stats.total_realized_pnl_sol >= 0 ? <RiseOutlined /> : <FallOutlined />}
-                valueStyle={{ 
-                  color: stats.total_realized_pnl_sol >= 0 ? '#52c41a' : '#ff4d4f' ,fontSize:'16px'
+                valueStyle={{
+                  color: stats.total_realized_pnl_sol >= 0 ? '#52c41a' : '#ff4d4f', fontSize: '16px'
                 }}
               />
               <Text type="secondary" style={{ fontSize: '12px' }}>
@@ -453,7 +481,7 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
               </Text>
             </Card>
           </Col>
-          
+
           <Col xs={24} sm={12} md={6}>
             <Card size="small">
               <Statistic
@@ -462,8 +490,8 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
                 precision={4}
                 suffix="SOL"
                 prefix={stats.total_unrealized_pnl_sol >= 0 ? <RiseOutlined /> : <FallOutlined />}
-                valueStyle={{ 
-                  color: stats.total_unrealized_pnl_sol >= 0 ? '#52c41a' : '#ff4d4f' ,fontSize:'16px'
+                valueStyle={{
+                  color: stats.total_unrealized_pnl_sol >= 0 ? '#52c41a' : '#ff4d4f', fontSize: '16px'
                 }}
               />
               <Text type="secondary" style={{ fontSize: '12px' }}>
@@ -471,7 +499,7 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
               </Text>
             </Card>
           </Col>
-          
+
           <Col xs={24} sm={12} md={6}>
             <Card size="small">
               <Statistic
@@ -480,13 +508,13 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
                 precision={1}
                 suffix="%"
                 prefix={<TrophyOutlined />}
-                valueStyle={{ 
-                  color: stats.win_rate >= 0.5 ? '#52c41a' : '#ff4d4f' ,fontSize:'16px'
+                valueStyle={{
+                  color: stats.win_rate >= 0.5 ? '#52c41a' : '#ff4d4f', fontSize: '16px'
                 }}
               />
-              <Progress 
-                percent={stats.win_rate * 100} 
-                size="small" 
+              <Progress
+                percent={stats.win_rate * 100}
+                size="small"
                 showInfo={false}
                 strokeColor={stats.win_rate >= 0.5 ? '#52c41a' : '#ff4d4f'}
               />
@@ -504,23 +532,33 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
           </Space>
         }
         extra={
-          <Button 
-            type="primary" 
-            icon={<ReloadOutlined />} 
-            onClick={fetchPositions}
-            loading={loading}
-          >
-            刷新
-          </Button>
+          <Space>
+            <Button
+              type="primary"
+              icon={<ReloadOutlined />}
+              onClick={fetchPositions}
+              loading={loading}
+            >
+              刷新
+            </Button>
+            <Button
+              type="primary"
+              icon={<ThunderboltOutlined />}
+              onClick={updateTokenMetadata}
+              loading={isUpdatingMetadata}
+            >
+              批量更新元数据
+            </Button>
+          </Space>
         }
       >
-        <Tabs 
-          activeKey={activeTab} 
+        <Tabs
+          activeKey={activeTab}
           onChange={(key) => setActiveTab(key as 'open' | 'closed' | 'all')}
           items={tabItems}
           style={{ marginBottom: '16px' }}
         />
-        
+
         <Table
           dataSource={positions}
           columns={columns}
@@ -529,7 +567,7 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
             pageSize: 10,
             showSizeChanger: true,
             showQuickJumper: true,
-            showTotal: (total, range) => 
+            showTotal: (total, range) =>
               `第 ${range[0]}-${range[1]} 条/共 ${total} 条`
           }}
           locale={{
@@ -544,7 +582,7 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
           size="small"
         />
       </Card>
-      
+
       {/* 卖出模态框 */}
       <Modal
         title="按比例卖出"
@@ -567,12 +605,12 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
                 </Tag>
               )}
             </div>
-            
+
             <div style={{ marginBottom: '16px' }}>
               <Text strong>当前持有: </Text>
               <Text>{formatNumberSmart(selectedPosition.current_amount)}</Text>
             </div>
-            
+
             <div style={{ marginBottom: '16px' }}>
               <Text strong>当前价格: </Text>
               <Text>{formatNumberSmart(selectedPosition.current_price_sol)}</Text>
@@ -580,14 +618,14 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
                 ({formatNumberSmart(selectedPosition.current_price_usd)})
               </Text>
             </div>
-            
+
             <div style={{ marginBottom: '16px' }}>
               <Text strong>卖出比例: </Text>
               <Text style={{ fontSize: '16px', color: '#1890ff' }}>
                 {(sellRatio * 100).toFixed(0)}%
               </Text>
             </div>
-            
+
             <div style={{ marginBottom: '16px' }}>
               <Slider
                 min={0.01}
@@ -606,7 +644,7 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
                 }}
               />
             </div>
-            
+
             <div style={{ marginBottom: '16px' }}>
               <Row gutter={8}>
                 <Col span={12}>
@@ -623,7 +661,7 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
                 </Col>
               </Row>
             </div>
-            
+
             <div style={{ marginBottom: '16px' }}>
               <Space size="small">
                 <Button size="small" onClick={() => setSellRatio(0.25)}>25%</Button>

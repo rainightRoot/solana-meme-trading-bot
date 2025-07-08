@@ -83,6 +83,7 @@ contextBridge.exposeInMainWorld('electronAPI',{
   getPositionStats: (walletAddress?: string) => ipcRenderer.invoke('positions:stats', walletAddress),
   updatePositionPrice: (tokenMint: string, walletAddress: string, priceSol: number, priceUsd: number) =>
     ipcRenderer.invoke('positions:update-price', tokenMint, walletAddress, priceSol, priceUsd),
+  updatePositionMetadata: (limit?: number) => ipcRenderer.invoke('positions:update-metadata', limit),
   deletePosition: (tokenMint: string, walletAddress: string) => 
     ipcRenderer.invoke('positions:delete', tokenMint, walletAddress),
   

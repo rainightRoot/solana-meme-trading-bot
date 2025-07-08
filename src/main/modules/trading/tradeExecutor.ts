@@ -30,12 +30,202 @@ interface QuoteResponse {
 // 获取持仓管理器（延迟导入避免循环依赖）
 let getPositionManager: () => import('../../infrastructure/database').PositionManager | null;
 
+// 代币精度缓存
+const tokenDecimalsCache = new Map<string, number>();
+
+// 代币元数据缓存
+const tokenMetadataCache = new Map<string, { symbol: string; name: string }>();
+
+/**
+ * 代币元数据结构
+ */
+interface TokenMetadata {
+  symbol: string;
+  name: string;
+}
+
+/**
+ * 获取代币元数据
+ * @param mintAddress - 代币 mint 地址
+ * @param connection - Solana 连接
+ * @returns {Promise<TokenMetadata | null>} - 代币元数据
+ */
+async function getTokenMetadata(mintAddress: string, connection: Connection): Promise<TokenMetadata | null> {
+  try {
+    // 检查缓存
+    if (tokenMetadataCache.has(mintAddress)) {
+      return tokenMetadataCache.get(mintAddress)!;
+    }
+
+    // SOL/WSOL 的元数据
+    if (mintAddress === 'So11111111111111111111111111111111111111112') {
+      const metadata = { symbol: 'SOL', name: 'Solana' };
+      tokenMetadataCache.set(mintAddress, metadata);
+      return metadata;
+    }
+
+    // 尝试从 Jupiter API 获取代币信息
+    try {
+      const api = await loadJupiterApi();
+      if (api) {
+        const tokenList = await api.tokenList();
+        const tokenInfo = tokenList.find((token: any) => token.address === mintAddress);
+        
+        if (tokenInfo && tokenInfo.symbol) {
+          const metadata = {
+            symbol: tokenInfo.symbol,
+            name: tokenInfo.name || tokenInfo.symbol
+          };
+          tokenMetadataCache.set(mintAddress, metadata);
+          solanaLogger.debug(`从 Jupiter API 获取代币元数据: ${mintAddress} -> ${metadata.symbol}`);
+          return metadata;
+        }
+      }
+    } catch (error) {
+      solanaLogger.debug(`从 Jupiter API 获取代币元数据失败: ${mintAddress}`);
+    }
+
+    // 尝试从 Metaplex Token Metadata 程序获取
+    try {
+      const TOKEN_METADATA_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
+      
+      // 生成 metadata PDA
+      const [metadataPDA] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from('metadata'),
+          TOKEN_METADATA_PROGRAM_ID.toBuffer(),
+          new PublicKey(mintAddress).toBuffer()
+        ],
+        TOKEN_METADATA_PROGRAM_ID
+      );
+
+      const metadataAccount = await connection.getAccountInfo(metadataPDA);
+      
+      if (metadataAccount && metadataAccount.data) {
+        const metadata = parseTokenMetadata(metadataAccount.data);
+        if (metadata) {
+          tokenMetadataCache.set(mintAddress, metadata);
+          solanaLogger.debug(`从 Metaplex 获取代币元数据: ${mintAddress} -> ${metadata.symbol}`);
+          return metadata;
+        }
+      }
+    } catch (error) {
+      solanaLogger.debug(`从 Metaplex 获取代币元数据失败: ${mintAddress}`);
+    }
+
+    // 如果都失败了，返回 null
+    solanaLogger.warn(`无法获取代币 ${mintAddress} 的元数据`);
+    return null;
+  } catch (error: any) {
+    solanaLogger.error(`获取代币 ${mintAddress} 元数据失败:`, error.message);
+    return null;
+  }
+}
+
+/**
+ * 解析 Metaplex Token Metadata 数据
+ * @param data - 账户数据
+ * @returns {TokenMetadata | null} - 解析后的元数据
+ */
+function parseTokenMetadata(data: Buffer): TokenMetadata | null {
+  try {
+    // Metaplex Token Metadata 数据结构很复杂，这里简化处理
+    // 实际实现需要更复杂的解析逻辑
+    
+    // 跳过前面的元数据头部
+    let offset = 1; // 跳过 key (1 byte)
+    offset += 32; // 跳过 update_authority (32 bytes)
+    offset += 32; // 跳过 mint (32 bytes)
+    
+    // 读取 name 长度和内容
+    const nameLength = data.readUInt32LE(offset);
+    offset += 4;
+    const nameData = data.slice(offset, offset + nameLength);
+    const name = nameData.toString('utf8').replace(/\0/g, '').trim();
+    offset += nameLength;
+    
+    // 读取 symbol 长度和内容
+    const symbolLength = data.readUInt32LE(offset);
+    offset += 4;
+    const symbolData = data.slice(offset, offset + symbolLength);
+    const symbol = symbolData.toString('utf8').replace(/\0/g, '').trim();
+    
+    if (symbol && name) {
+      return { symbol, name };
+    }
+    
+    return null;
+  } catch (error) {
+    solanaLogger.debug('解析 Metaplex 元数据失败:', error);
+    return null;
+  }
+}
+
+/**
+ * 获取代币精度
+ * @param mintAddress - 代币 mint 地址
+ * @param connection - Solana 连接
+ * @returns {Promise<number>} - 代币精度，如果获取失败则返回默认值
+ */
+async function getTokenDecimals(mintAddress: string, connection: Connection): Promise<number> {
+  try {
+    // 检查缓存
+    if (tokenDecimalsCache.has(mintAddress)) {
+      return tokenDecimalsCache.get(mintAddress)!;
+    }
+
+    // SOL/WSOL 的精度是 9
+    if (mintAddress === 'So11111111111111111111111111111111111111112') {
+      tokenDecimalsCache.set(mintAddress, 9);
+      return 9;
+    }
+
+    const mintPublicKey = new PublicKey(mintAddress);
+    const accountInfo = await connection.getAccountInfo(mintPublicKey);
+    
+    if (!accountInfo || !accountInfo.data) {
+      solanaLogger.warn(`无法获取代币 ${mintAddress} 的账户信息，使用默认精度 6`);
+      tokenDecimalsCache.set(mintAddress, 6); // 缓存默认值
+      return 6;
+    }
+
+    // SPL Token Mint 的数据结构：
+    // - 前 44 字节是固定数据
+    // - 第 44 字节是 decimals (0-based indexing)
+    const decimals = accountInfo.data[44];
+    
+    if (decimals === undefined || decimals > 18) {
+      solanaLogger.warn(`代币 ${mintAddress} 的精度值异常: ${decimals}，使用默认精度 6`);
+      tokenDecimalsCache.set(mintAddress, 6); // 缓存默认值
+      return 6;
+    }
+
+    solanaLogger.debug(`代币 ${mintAddress} 精度: ${decimals}`);
+    tokenDecimalsCache.set(mintAddress, decimals); // 缓存结果
+    return decimals;
+  } catch (error: any) {
+    solanaLogger.error(`获取代币 ${mintAddress} 精度失败:`, error.message);
+    tokenDecimalsCache.set(mintAddress, 6); // 缓存默认值
+    return 6;
+  }
+}
+
 /**
  * 设置持仓管理器的获取器
  */
 export function setPositionManagerGetter(getter: () => import('../../infrastructure/database').PositionManager | null) {
   getPositionManager = getter;
 }
+
+/**
+ * 导出代币元数据获取函数，供其他模块使用
+ */
+export { getTokenMetadata };
+
+/**
+ * 导出代币精度获取函数，供其他模块使用
+ */
+export { getTokenDecimals };
 
 /**
  * 动态加载 Jupiter API
@@ -278,24 +468,46 @@ export async function performSwap(
     const inputMintPubkey = new PublicKey(inputMint);
     const outputMintPubkey = new PublicKey(outputMint);
     
+    // 确定要使用的连接
+    const activeConnection = connection || 
+      (() => {
+        if (!connection) {
+          solanaLogger.info('连接未初始化，正在初始化交易执行器...');
+          initializeTradeExecutor();
+        }
+        return connection;
+      })();
+    
+    if (!activeConnection) {
+      throw new Error('无法初始化连接');
+    }
+    
+    // 动态获取输入和输出代币的精度
+    const [inputDecimals, outputDecimals] = await Promise.all([
+      getTokenDecimals(inputMint, activeConnection),
+      getTokenDecimals(outputMint, activeConnection)
+    ]);
+    
+    solanaLogger.debug(`代币精度 - 输入: ${inputDecimals}, 输出: ${outputDecimals}`);
+    
     // 将Token数量转换为正确的单位
-    // 对于大多数Token，使用6位小数，对于SOL使用9位小数
-    const decimals = inputMint === 'So11111111111111111111111111111111111111112' ? 9 : 6;
-    const amountInBaseUnits = Math.floor(amount * Math.pow(10, decimals));
+    const amountInBaseUnits = Math.floor(amount * Math.pow(10, inputDecimals));
     
     const slippageBps = configManager.getNested<number>('solana.slippageBps') || 50;
     
     // 1. 获取报价
-    const quote = await getQuote(inputMintPubkey, outputMintPubkey, amountInBaseUnits, slippageBps, connection);
+    const quote = await getQuote(inputMintPubkey, outputMintPubkey, amountInBaseUnits, slippageBps, activeConnection);
     if (!quote) {
       solanaLogger.error('无法获取交换报价');
       return null;
     }
     
-    solanaLogger.info(`获得交换报价: ${Number(quote.outAmount) / 1e6} ${outputMint} for ${amount} ${inputMint}`);
+    // 使用正确的输出精度计算输出数量
+    const outputAmount = Number(quote.outAmount) / Math.pow(10, outputDecimals);
+    solanaLogger.info(`获得交换报价: ${outputAmount} ${outputMint} for ${amount} ${inputMint}`);
     
     // 2. 执行兑换
-    const txSignature = await executeSwap(quote, connection);
+    const txSignature = await executeSwap(quote, activeConnection);
     
     return txSignature;
   } catch (error: any) {
@@ -317,21 +529,28 @@ export async function followUpBuy(tokenToBuyMint: string, solAmountToSpend: numb
 
   const solMint = new PublicKey('So11111111111111111111111111111111111111112');
   const tokenMint = new PublicKey(tokenToBuyMint);
-  const amountInLamports = Math.floor(solAmountToSpend * 1e9);
-  //如果 tokenMint 是 SOL，则跳过买入
+  const amountInLamports = Math.floor(solAmountToSpend * 1e9); // SOL 精度是 9
+  
+  // 如果 tokenMint 是 SOL，则跳过买入
   if (tokenToBuyMint === 'So11111111111111111111111111111111111111112') {
     return;
   }
+  
   // 从配置读取滑点
   const slippageBps = configManager.getNested<number>('solana.slippageBps') || 50; // 默认 0.5%
 
   // 获取SOL价格 usd
   const solPrice = await getTokenPriceUSD('So11111111111111111111111111111111111111112');
+  
   // 确保连接已初始化
   if (!connection) {
     solanaLogger.info('连接未初始化，正在初始化交易执行器...');
     initializeTradeExecutor();
   }
+
+  // 获取要买入的代币精度
+  const tokenDecimals = await getTokenDecimals(tokenToBuyMint, connection);
+  solanaLogger.debug(`目标代币 ${tokenToBuyMint} 精度: ${tokenDecimals}`);
 
   // 1. 获取报价
   const quote = await getQuote(solMint, tokenMint, amountInLamports, slippageBps, connection);
@@ -339,9 +558,12 @@ export async function followUpBuy(tokenToBuyMint: string, solAmountToSpend: numb
     solanaLogger.error('无法获取报价，取消跟单');
     return;
   }
-  solanaLogger.info(`获得报价: ${Number(quote.outAmount) / 1e5} ${tokenToBuyMint} for ${solAmountToSpend} SOL`);
+  
+  // 使用正确的代币精度计算数量
+  const tokenAmount = Number(quote.outAmount) / Math.pow(10, tokenDecimals);
+  solanaLogger.info(`获得报价: ${tokenAmount} ${tokenToBuyMint} for ${solAmountToSpend} SOL`);
+  
   // 计算token买入价格
-  const tokenAmount = Number(quote.outAmount) / 1e5;
   const tokenPricePerUnitSol = solAmountToSpend / tokenAmount;
   const tokenPricePerUnitUsd = tokenPricePerUnitSol * solPrice;
   
@@ -382,5 +604,4 @@ export async function followUpBuy(tokenToBuyMint: string, solAmountToSpend: numb
       }
     }
   }
-  
 } 

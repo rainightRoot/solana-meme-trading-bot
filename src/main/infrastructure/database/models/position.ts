@@ -297,6 +297,8 @@ export class PositionModel {
     // 检查是否应该关闭持仓
     if (this.shouldClosePosition(updatedPosition)) {
       updatedPosition.status = 'closed';
+    }else{
+      updatedPosition.status = 'open';
     }
 
     updatedPosition.last_trade_at = now;

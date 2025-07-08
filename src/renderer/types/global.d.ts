@@ -48,6 +48,7 @@ declare global {
       getPositionStats: (walletAddress?: string) => Promise<PositionStats>;
       updatePositionPrice: (tokenMint: string, walletAddress: string, priceSol: number, priceUsd: number) => Promise<boolean>;
       deletePosition: (tokenMint: string, walletAddress: string) => Promise<boolean>;
+      updatePositionMetadata: (limit?: number) => Promise<number>;
 
       // 钱包 API
       getWalletInfo: () => Promise<{ address: string; balance: number }>;
