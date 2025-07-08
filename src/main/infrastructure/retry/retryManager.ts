@@ -49,6 +49,14 @@ export const RETRY_CONFIGS = {
     maxDelay: 30000,
     backoffFactor: 1.5,
     enableJitter: true
+  },
+  // 交易确认重试配置
+  TRANSACTION_CONFIRM: {
+    maxRetries: 5,
+    baseDelay: 3000,
+    maxDelay: 15000,
+    backoffFactor: 1.2,
+    enableJitter: true
   }
 } as const;
 
@@ -220,6 +228,14 @@ export class RetryManager {
     
     // Solana RPC 特定错误
     if (errorMessage.includes('slot') && errorMessage.includes('not available')) {
+      return true;
+    }
+    
+    // Solana 交易确认超时错误
+    if (errorMessage.includes('transaction was not confirmed') ||
+        errorMessage.includes('not confirmed in') ||
+        errorMessage.includes('confirmation timeout') ||
+        errorMessage.includes('signature not found')) {
       return true;
     }
     

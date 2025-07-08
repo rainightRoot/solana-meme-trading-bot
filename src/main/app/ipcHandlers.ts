@@ -362,8 +362,18 @@ export function registerIPCHandlers(mainWindow: BrowserWindow): void {
       
       // 导入卖出策略管理器
       const { SellStrategyManager } = await import('../modules/trading/sellStrategyManager');
+      const { getProxyAgent } = await import('../infrastructure/network');
+      const fetch = (await import('cross-fetch')).default;
+      
       const rpcUrl = configManager.getNested<string>('solana.rpcUrl') || 'https://api.mainnet-beta.solana.com';
-      const connection = new Connection(rpcUrl, 'confirmed');
+      const agent = getProxyAgent();
+      const customFetch = (url: any, options: any) => {
+        return fetch(url, { ...options, agent: agent as any });
+      };
+      const connection = new Connection(rpcUrl, {
+        commitment: 'confirmed',
+        fetch: customFetch as any,
+      });
       const sellStrategyManager = new SellStrategyManager(connection);
       
       // 执行卖出
@@ -447,8 +457,18 @@ export function registerIPCHandlers(mainWindow: BrowserWindow): void {
       // 获取SOL余额
       let balance = 0;
       try {
+        const { getProxyAgent } = await import('../infrastructure/network');
+        const fetch = (await import('cross-fetch')).default;
+        
         const rpcUrl = configManager.getNested<string>('solana.rpcUrl') || 'https://api.mainnet-beta.solana.com';
-        const connection = new Connection(rpcUrl, 'confirmed');
+        const agent = getProxyAgent();
+        const customFetch = (url: any, options: any) => {
+          return fetch(url, { ...options, agent: agent as any });
+        };
+        const connection = new Connection(rpcUrl, {
+          commitment: 'confirmed',
+          fetch: customFetch as any,
+        });
         const balanceLamports = await connection.getBalance(signer.publicKey);
         balance = balanceLamports / 1e9; // 转换为SOL单位
       } catch (balanceError) {

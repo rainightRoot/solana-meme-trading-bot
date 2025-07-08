@@ -5,7 +5,7 @@ import { configManager } from '../../infrastructure/config';
 import { getProxyAgent , getTokenPriceUSD } from '../../infrastructure/network';
 import { withRetry, RETRY_CONFIGS } from '../../infrastructure/retry';
 import { TradeRecord } from '../../infrastructure/database';
-import fetch from 'node-fetch';
+import fetch from 'cross-fetch';
 
 // Dynamic imports to avoid bundling browser-specific code
 let jupiterApi: any = null;
@@ -93,13 +93,15 @@ export function initializeTradeExecutor() {
  * @param outputMint - 输出 Token (要买入的 Token)
  * @param amount - 输入 Token 的数量 (lamports)
  * @param slippageBps - 滑点 (e.g., 50 for 0.5%)
+ * @param connectionToUse - 要使用的连接（可选，如果不提供则使用全局连接）
  * @returns {Promise<QuoteResponse | null>}
  */
 async function getQuote(
   inputMint: PublicKey,
   outputMint: PublicKey,
   amount: number,
-  slippageBps: number
+  slippageBps: number,
+  connectionToUse?: Connection
 ): Promise<QuoteResponse | null> {
   try {
     return await withRetry(async () => {
@@ -132,9 +134,10 @@ async function getQuote(
 /**
  * 执行兑换
  * @param quote - Jupiter 的报价
+ * @param connectionToUse - 要使用的连接（可选，如果不提供则使用全局连接）
  * @returns {Promise<string | null>} - 交易签名
  */
-async function executeSwap(quote: QuoteResponse): Promise<string | null> {
+async function executeSwap(quote: QuoteResponse, connectionToUse?: Connection): Promise<string | null> {
   const signer = walletManager.getSigner();
   if (!signer) {
     solanaLogger.error('无法执行兑换：交易钱包未加载');
@@ -142,6 +145,21 @@ async function executeSwap(quote: QuoteResponse): Promise<string | null> {
   }
 
   try {
+    // 确定要使用的连接
+    const activeConnection = connectionToUse || connection;
+    
+    // 确保连接已初始化
+    if (!activeConnection) {
+      solanaLogger.info('连接未初始化，正在初始化交易执行器...');
+      initializeTradeExecutor();
+      // 如果没有传递连接参数，使用全局连接
+      if (!connectionToUse && !connection) {
+        throw new Error('无法初始化连接');
+      }
+    }
+
+    const finalConnection = connectionToUse || connection;
+    
     const api = await loadJupiterApi();
     if (!api) {
       solanaLogger.error('Jupiter API 未初始化');
@@ -166,21 +184,70 @@ async function executeSwap(quote: QuoteResponse): Promise<string | null> {
 
     // 发送交易（带重试机制）
     const rawTransaction = transaction.serialize();
+    solanaLogger.info('准备发送交易...');
     const txid = await withRetry(async () => {
-      return await connection.sendRawTransaction(rawTransaction, {
+      return await finalConnection.sendRawTransaction(rawTransaction, {
         skipPreflight: true,
         maxRetries: 0, // 在这里不重试，让外层重试机制处理
       });
     }, RETRY_CONFIGS.FAST, `sendTransaction`);
+    
+    solanaLogger.info(`交易已发送，签名: ${txid}，开始确认...`);
 
-    // 确认交易（带重试机制）
-    const confirmation = await withRetry(async () => {
-      const result = await connection.confirmTransaction(txid, 'confirmed');
-      if (result.value.err) {
-        throw new Error(`交易确认失败: ${result.value.err}`);
+    // 确认交易（使用专门的交易确认配置）
+    let confirmationResult = null;
+    try {
+      confirmationResult = await withRetry(async () => {
+        const result = await finalConnection.confirmTransaction(txid, 'confirmed');
+        if (result.value.err) {
+          throw new Error(`交易确认失败: ${result.value.err}`);
+        }
+        return result;
+      }, RETRY_CONFIGS.TRANSACTION_CONFIRM, `confirmTransaction(${txid})`);
+    } catch (confirmError: any) {
+      // 即使确认超时，也先记录交易签名
+      solanaLogger.warn(`交易确认超时，但交易可能仍然成功: https://solscan.io/tx/${txid}`);
+      solanaLogger.warn(`确认错误: ${confirmError.message}`);
+      
+      // 尝试多次检查交易状态
+      let isConfirmed = false;
+      for (let i = 0; i < 3; i++) {
+        try {
+          await new Promise(resolve => setTimeout(resolve, 2000)); // 等待2秒
+          const signature = await finalConnection.getSignatureStatus(txid);
+          
+          if (signature.value && signature.value.confirmationStatus) {
+            solanaLogger.info(`交易状态检查 ${i + 1}: ${signature.value.confirmationStatus}`);
+            if (signature.value.confirmationStatus === 'confirmed' || signature.value.confirmationStatus === 'finalized') {
+              solanaLogger.info(`交易实际上已确认: https://solscan.io/tx/${txid}`);
+              isConfirmed = true;
+              break;
+            }
+          }
+        } catch (statusError: any) {
+          solanaLogger.warn(`交易状态检查失败 ${i + 1}: ${statusError.message}`);
+        }
       }
-      return result;
-    }, RETRY_CONFIGS.FAST, `confirmTransaction(${txid})`);
+      
+      if (isConfirmed) {
+        return txid; // 返回交易签名，因为交易实际上成功了
+      }
+      
+      // 最后尝试通过RPC检查交易
+      try {
+        const transaction = await finalConnection.getTransaction(txid);
+        if (transaction && transaction.meta && !transaction.meta.err) {
+          solanaLogger.info(`通过RPC确认交易成功: https://solscan.io/tx/${txid}`);
+          return txid;
+        }
+      } catch (rpcError: any) {
+        solanaLogger.warn(`RPC交易查询失败: ${rpcError.message}`);
+      }
+      
+      // 如果确认失败，仍然返回交易签名，让用户知道交易已发送
+      solanaLogger.warn(`交易已发送但确认状态未知，请手动检查: https://solscan.io/tx/${txid}`);
+      return txid;
+    }
     
 
     solanaLogger.info(`兑换成功！交易签名: https://solscan.io/tx/${txid}`);
@@ -219,7 +286,7 @@ export async function performSwap(
     const slippageBps = configManager.getNested<number>('solana.slippageBps') || 50;
     
     // 1. 获取报价
-    const quote = await getQuote(inputMintPubkey, outputMintPubkey, amountInBaseUnits, slippageBps);
+    const quote = await getQuote(inputMintPubkey, outputMintPubkey, amountInBaseUnits, slippageBps, connection);
     if (!quote) {
       solanaLogger.error('无法获取交换报价');
       return null;
@@ -228,7 +295,7 @@ export async function performSwap(
     solanaLogger.info(`获得交换报价: ${Number(quote.outAmount) / 1e6} ${outputMint} for ${amount} ${inputMint}`);
     
     // 2. 执行兑换
-    const txSignature = await executeSwap(quote);
+    const txSignature = await executeSwap(quote, connection);
     
     return txSignature;
   } catch (error: any) {
@@ -260,22 +327,28 @@ export async function followUpBuy(tokenToBuyMint: string, solAmountToSpend: numb
 
   // 获取SOL价格 usd
   const solPrice = await getTokenPriceUSD('So11111111111111111111111111111111111111112');
+  // 确保连接已初始化
+  if (!connection) {
+    solanaLogger.info('连接未初始化，正在初始化交易执行器...');
+    initializeTradeExecutor();
+  }
+
   // 1. 获取报价
-  const quote = await getQuote(solMint, tokenMint, amountInLamports, slippageBps);
+  const quote = await getQuote(solMint, tokenMint, amountInLamports, slippageBps, connection);
   if (!quote) {
     solanaLogger.error('无法获取报价，取消跟单');
     return;
   }
-  solanaLogger.info(`获得报价: ${Number(quote.outAmount) / 1e6} ${tokenToBuyMint} for ${solAmountToSpend} SOL`);
+  solanaLogger.info(`获得报价: ${Number(quote.outAmount) / 1e5} ${tokenToBuyMint} for ${solAmountToSpend} SOL`);
   // 计算token买入价格
-  const tokenAmount = Number(quote.outAmount) / 1e6;
+  const tokenAmount = Number(quote.outAmount) / 1e5;
   const tokenPricePerUnitSol = solAmountToSpend / tokenAmount;
   const tokenPricePerUnitUsd = tokenPricePerUnitSol * solPrice;
   
-  solanaLogger.info(`Token价格: ${tokenPricePerUnitSol.toFixed(8)} SOL / ${tokenPricePerUnitUsd.toFixed(6)} USD per token`);
+  solanaLogger.info(`Token价格: ${tokenPricePerUnitSol} SOL / ${tokenPricePerUnitUsd} USD per token`);
   
   // 2. 执行兑换
-  const txSignature = await executeSwap(quote);
+  const txSignature = await executeSwap(quote, connection);
   
   // 3. 记录持仓（如果交易成功）
   if (txSignature && getPositionManager) {
@@ -296,6 +369,7 @@ export async function followUpBuy(tokenToBuyMint: string, solAmountToSpend: numb
           gas_fee_sol: 0, // TODO: 计算实际Gas费用
           block_time: new Date().toISOString()
         };
+        solanaLogger.info(`tradeRecord: ${JSON.stringify(tradeRecord)}`);
         
         const recorded = await positionManager.recordTrade(tradeRecord);
         if (recorded) {

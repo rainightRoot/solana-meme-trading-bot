@@ -35,6 +35,7 @@ import {
   DeleteOutlined
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import { formatNumberSmart } from '../utils/priceFormatter';
 
 const { Text, Title } = Typography;
 const { TabPane } = Tabs;
@@ -141,10 +142,7 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
     fetchPositions();
   }, [walletAddress, activeTab]);
 
-  // 格式化数字显示
-  const formatNumber = (num: number, decimals = 6) => {
-    return Number(num).toFixed(decimals);
-  };
+
 
   // 格式化Token地址显示
   const formatTokenMint = (mint: string) => {
@@ -215,10 +213,10 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
       <div style={{ textAlign: isSmall ? 'left' : 'center' }}>
         <div style={{ color, fontWeight: '600', fontSize: isSmall ? '14px' : '16px' }}>
           {icon && <span style={{ marginRight: '4px' }}>{icon}</span>}
-          {formatNumber(pnlSol, 4)} SOL
+          {formatNumberSmart(pnlSol)} SOL
         </div>
         <div style={{ color: '#999', fontSize: '12px' }}>
-          ${formatNumber(pnlUsd, 2)}
+          {formatNumberSmart(pnlUsd)}
         </div>
       </div>
     );
@@ -262,7 +260,7 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
       align: 'right',
       render: (amount: number) => (
         <div>
-          <Text strong>{formatNumber(amount, 2)}</Text>
+          <Text strong>{formatNumberSmart(amount)}</Text>
         </div>
       ),
     },
@@ -273,9 +271,9 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
       align: 'right',
       render: (record: Position) => (
         <div>
-          <div><Text strong>{formatNumber(record.avg_buy_price_sol, 8)} SOL</Text></div>
+          <div><Text strong>{formatNumberSmart(record.avg_buy_price_sol)}</Text></div>
           <div><Text type="secondary" style={{ fontSize: '12px' }}>
-            ${formatNumber(record.avg_buy_price_usd, 6)}
+            {formatNumberSmart(record.avg_buy_price_usd)}
           </Text></div>
         </div>
       ),
@@ -287,9 +285,9 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
       align: 'right',
       render: (record: Position) => (
         <div>
-          <div><Text strong>{formatNumber(record.current_price_sol, 8)} SOL</Text></div>
+          <div><Text strong>{formatNumberSmart(record.current_price_sol)}</Text></div>
           <div><Text type="secondary" style={{ fontSize: '12px' }}>
-            ${formatNumber(record.current_price_usd, 6)}
+            {formatNumberSmart(record.current_price_usd)}
           </Text></div>
         </div>
       ),
@@ -352,7 +350,7 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
             <Tooltip title="一键全部卖出">
               <Popconfirm
                 title="确认卖出"
-                description={`确定要全部卖出 ${formatNumber(record.current_amount, 2)} 个代币吗？`}
+                description={`确定要全部卖出 ${formatNumberSmart(record.current_amount)} 个代币吗？`}
                 onConfirm={() => sellAll(record)}
                 okText="确认"
                 cancelText="取消"
@@ -433,7 +431,7 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
                 valueStyle={{ color: '#1890ff',fontSize:'16px' }}
               />
               <Text type="secondary" style={{ fontSize: '12px' }}>
-                ${formatNumber(stats.total_invested_usd, 2)}
+                {formatNumberSmart(stats.total_invested_usd)}
               </Text>
             </Card>
           </Col>
@@ -451,7 +449,7 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
                 }}
               />
               <Text type="secondary" style={{ fontSize: '12px' }}>
-                ${formatNumber(stats.total_realized_pnl_usd, 2)}
+                {formatNumberSmart(stats.total_realized_pnl_usd)}
               </Text>
             </Card>
           </Col>
@@ -469,7 +467,7 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
                 }}
               />
               <Text type="secondary" style={{ fontSize: '12px' }}>
-                ${formatNumber(stats.total_unrealized_pnl_usd, 2)}
+                {formatNumberSmart(stats.total_unrealized_pnl_usd)}
               </Text>
             </Card>
           </Col>
@@ -572,14 +570,14 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
             
             <div style={{ marginBottom: '16px' }}>
               <Text strong>当前持有: </Text>
-              <Text>{formatNumber(selectedPosition.current_amount, 2)}</Text>
+              <Text>{formatNumberSmart(selectedPosition.current_amount)}</Text>
             </div>
             
             <div style={{ marginBottom: '16px' }}>
               <Text strong>当前价格: </Text>
-              <Text>{formatNumber(selectedPosition.current_price_sol, 8)} SOL</Text>
+              <Text>{formatNumberSmart(selectedPosition.current_price_sol)}</Text>
               <Text type="secondary" style={{ marginLeft: '8px' }}>
-                (${formatNumber(selectedPosition.current_price_usd, 6)})
+                ({formatNumberSmart(selectedPosition.current_price_usd)})
               </Text>
             </div>
             
@@ -614,13 +612,13 @@ export default function PositionPanel({ walletAddress }: PositionPanelProps) {
                 <Col span={12}>
                   <Text strong>卖出数量: </Text>
                   <Text style={{ color: '#52c41a' }}>
-                    {formatNumber(selectedPosition.current_amount * sellRatio, 2)}
+                    {formatNumberSmart(selectedPosition.current_amount * sellRatio)}
                   </Text>
                 </Col>
                 <Col span={12}>
                   <Text strong>预计收入: </Text>
                   <Text style={{ color: '#52c41a' }}>
-                    {formatNumber(selectedPosition.current_amount * sellRatio * selectedPosition.current_price_sol, 6)} SOL
+                    {formatNumberSmart(selectedPosition.current_amount * sellRatio * selectedPosition.current_price_sol)}
                   </Text>
                 </Col>
               </Row>

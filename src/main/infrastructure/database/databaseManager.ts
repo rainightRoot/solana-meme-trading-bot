@@ -136,7 +136,82 @@ export class DatabaseManager {
       await this.run(query);
     }
     
+    // 执行数据库迁移
+    await this.runMigrations();
+    
     appLogger.info('数据库表结构创建完成');
+  }
+
+  /**
+   * 执行数据库迁移
+   */
+  private async runMigrations(): Promise<void> {
+    try {
+      // 检查positions表是否缺少新列
+      const columnsResult = await this.all<any>('PRAGMA table_info(positions)');
+      const existingColumns = columnsResult.map(col => col.name);
+      
+      // 需要添加的新列
+      const requiredColumns = [
+        'sell_strategy_phase',
+        'peak_price_sol',
+        'peak_price_usd',
+        'peak_time',
+        'last_sell_time'
+      ];
+      
+      const missingColumns = requiredColumns.filter(col => !existingColumns.includes(col));
+      
+      if (missingColumns.length > 0) {
+        appLogger.info(`检测到缺少的列: ${missingColumns.join(', ')}, 开始迁移...`);
+        
+        // 添加缺少的列
+        for (const column of missingColumns) {
+          let alterQuery = '';
+          
+          switch (column) {
+            case 'sell_strategy_phase':
+              alterQuery = `ALTER TABLE positions ADD COLUMN sell_strategy_phase TEXT DEFAULT 'initial'`;
+              break;
+            case 'peak_price_sol':
+              alterQuery = `ALTER TABLE positions ADD COLUMN peak_price_sol REAL DEFAULT 0`;
+              break;
+            case 'peak_price_usd':
+              alterQuery = `ALTER TABLE positions ADD COLUMN peak_price_usd REAL DEFAULT 0`;
+              break;
+            case 'peak_time':
+              alterQuery = `ALTER TABLE positions ADD COLUMN peak_time DATETIME`;
+              break;
+            case 'last_sell_time':
+              alterQuery = `ALTER TABLE positions ADD COLUMN last_sell_time DATETIME`;
+              break;
+          }
+          
+          if (alterQuery) {
+            await this.run(alterQuery);
+            appLogger.info(`成功添加列: ${column}`);
+          }
+        }
+        
+        // 更新现有记录的默认值
+        await this.run(`
+          UPDATE positions 
+          SET 
+            sell_strategy_phase = 'initial',
+            peak_price_sol = current_price_sol,
+            peak_price_usd = current_price_usd,
+            peak_time = COALESCE(updated_at, created_at)
+          WHERE sell_strategy_phase IS NULL OR peak_price_sol IS NULL
+        `);
+        
+        appLogger.info('数据库迁移完成');
+      } else {
+        appLogger.info('数据库结构已是最新版本');
+      }
+    } catch (error: any) {
+      appLogger.error('数据库迁移失败:', error.message);
+      throw error;
+    }
   }
 
   /**

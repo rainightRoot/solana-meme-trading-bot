@@ -106,7 +106,20 @@ export class PositionModel {
    * 计算平均买入价格
    */
   static calculateAvgBuyPrice(totalCost: number, totalAmount: number): number {
-    return totalAmount > 0 ? totalCost / totalAmount : 0;
+    if (totalAmount <= 0) return 0;
+    
+    const avgPrice = totalCost / totalAmount;
+    
+    // 对于极小的价格，保持足够的精度
+    if (avgPrice < 1e-6) {
+      return Number(avgPrice.toFixed(15));
+    } else if (avgPrice < 1e-3) {
+      return Number(avgPrice.toFixed(12));
+    } else if (avgPrice < 1) {
+      return Number(avgPrice.toFixed(8));
+    } else {
+      return Number(avgPrice.toFixed(6));
+    }
   }
 
   /**
@@ -117,7 +130,18 @@ export class PositionModel {
     avgBuyPrice: number,
     currentPrice: number
   ): number {
-    return currentAmount * (currentPrice - avgBuyPrice);
+    const pnl = currentAmount * (currentPrice - avgBuyPrice);
+    
+    // 对于极小的盈亏，保持足够的精度
+    if (Math.abs(pnl) < 1e-6) {
+      return Number(pnl.toFixed(15));
+    } else if (Math.abs(pnl) < 1e-3) {
+      return Number(pnl.toFixed(12));
+    } else if (Math.abs(pnl) < 1) {
+      return Number(pnl.toFixed(8));
+    } else {
+      return Number(pnl.toFixed(6));
+    }
   }
 
   /**
@@ -128,7 +152,19 @@ export class PositionModel {
     sellAmount: number,
     avgBuyPrice: number
   ): number {
-    return sellValue - (sellAmount * avgBuyPrice);
+    const cost = sellAmount * avgBuyPrice;
+    const pnl = sellValue - cost;
+    
+    // 对于极小的盈亏，保持足够的精度
+    if (Math.abs(pnl) < 1e-6) {
+      return Number(pnl.toFixed(15));
+    } else if (Math.abs(pnl) < 1e-3) {
+      return Number(pnl.toFixed(12));
+    } else if (Math.abs(pnl) < 1) {
+      return Number(pnl.toFixed(8));
+    } else {
+      return Number(pnl.toFixed(6));
+    }
   }
 
   /**
@@ -144,19 +180,28 @@ export class PositionModel {
   static createNewPosition(trade: TradeRecord): Omit<Position, 'id'> {
     const now = new Date().toISOString();
     
+    // 使用实际交易价值计算平均买入价格，确保数字精度
+    const actualPriceSol = trade.trade_type === 'buy' && trade.amount > 0 
+      ? trade.value_sol / trade.amount 
+      : trade.price_sol;
+    
+    const actualPriceUsd = trade.trade_type === 'buy' && trade.amount > 0 
+      ? trade.value_usd / trade.amount 
+      : trade.price_usd;
+    
     return {
       token_mint: trade.token_mint,
       wallet_address: trade.wallet_address,
       status: 'open',
-      total_buy_amount: trade.trade_type === 'buy' ? trade.amount : 0,
-      total_buy_cost_sol: trade.trade_type === 'buy' ? trade.value_sol : 0,
-      total_buy_cost_usd: trade.trade_type === 'buy' ? trade.value_usd : 0,
-      total_sell_amount: trade.trade_type === 'sell' ? trade.amount : 0,
-      total_sell_value_sol: trade.trade_type === 'sell' ? trade.value_sol : 0,
-      total_sell_value_usd: trade.trade_type === 'sell' ? trade.value_usd : 0,
-      avg_buy_price_sol: trade.trade_type === 'buy' ? trade.price_sol : 0,
-      avg_buy_price_usd: trade.trade_type === 'buy' ? trade.price_usd : 0,
-      current_amount: trade.trade_type === 'buy' ? trade.amount : -trade.amount,
+      total_buy_amount: trade.trade_type === 'buy' ? Number(trade.amount.toFixed(6)) : 0,
+      total_buy_cost_sol: trade.trade_type === 'buy' ? Number(trade.value_sol.toFixed(15)) : 0,
+      total_buy_cost_usd: trade.trade_type === 'buy' ? Number(trade.value_usd.toFixed(8)) : 0,
+      total_sell_amount: trade.trade_type === 'sell' ? Number(trade.amount.toFixed(6)) : 0,
+      total_sell_value_sol: trade.trade_type === 'sell' ? Number(trade.value_sol.toFixed(15)) : 0,
+      total_sell_value_usd: trade.trade_type === 'sell' ? Number(trade.value_usd.toFixed(8)) : 0,
+      avg_buy_price_sol: trade.trade_type === 'buy' ? actualPriceSol : 0,
+      avg_buy_price_usd: trade.trade_type === 'buy' ? actualPriceUsd : 0,
+      current_amount: trade.trade_type === 'buy' ? Number(trade.amount.toFixed(6)) : Number((-trade.amount).toFixed(6)),
       realized_pnl_sol: 0,
       realized_pnl_usd: 0,
       unrealized_pnl_sol: 0,
@@ -183,27 +228,27 @@ export class PositionModel {
     const now = new Date().toISOString();
 
     if (trade.trade_type === 'buy') {
-      // 买入交易
-      const newTotalBuyAmount = updatedPosition.total_buy_amount + trade.amount;
-      const newTotalBuyCostSol = updatedPosition.total_buy_cost_sol + trade.value_sol;
-      const newTotalBuyCostUsd = updatedPosition.total_buy_cost_usd + trade.value_usd;
+      // 买入交易 - 确保数字精度
+      const newTotalBuyAmount = Number((updatedPosition.total_buy_amount + trade.amount).toFixed(6));
+      const newTotalBuyCostSol = Number((updatedPosition.total_buy_cost_sol + trade.value_sol).toFixed(15));
+      const newTotalBuyCostUsd = Number((updatedPosition.total_buy_cost_usd + trade.value_usd).toFixed(8));
 
       updatedPosition.total_buy_amount = newTotalBuyAmount;
       updatedPosition.total_buy_cost_sol = newTotalBuyCostSol;
       updatedPosition.total_buy_cost_usd = newTotalBuyCostUsd;
       updatedPosition.avg_buy_price_sol = this.calculateAvgBuyPrice(newTotalBuyCostSol, newTotalBuyAmount);
       updatedPosition.avg_buy_price_usd = this.calculateAvgBuyPrice(newTotalBuyCostUsd, newTotalBuyAmount);
-      updatedPosition.current_amount += trade.amount;
+      updatedPosition.current_amount = Number((updatedPosition.current_amount + trade.amount).toFixed(6));
 
       if (!updatedPosition.first_buy_at) {
         updatedPosition.first_buy_at = now;
       }
     } else {
-      // 卖出交易
-      updatedPosition.total_sell_amount += trade.amount;
-      updatedPosition.total_sell_value_sol += trade.value_sol;
-      updatedPosition.total_sell_value_usd += trade.value_usd;
-      updatedPosition.current_amount -= trade.amount;
+      // 卖出交易 - 确保数字精度
+      updatedPosition.total_sell_amount = Number((updatedPosition.total_sell_amount + trade.amount).toFixed(6));
+      updatedPosition.total_sell_value_sol = Number((updatedPosition.total_sell_value_sol + trade.value_sol).toFixed(15));
+      updatedPosition.total_sell_value_usd = Number((updatedPosition.total_sell_value_usd + trade.value_usd).toFixed(8));
+      updatedPosition.current_amount = Number((updatedPosition.current_amount - trade.amount).toFixed(6));
 
       // 计算已实现盈亏
       const realizedPnLSol = this.calculateRealizedPnL(
@@ -217,8 +262,8 @@ export class PositionModel {
         updatedPosition.avg_buy_price_usd
       );
 
-      updatedPosition.realized_pnl_sol += realizedPnLSol;
-      updatedPosition.realized_pnl_usd += realizedPnLUsd;
+      updatedPosition.realized_pnl_sol = Number((updatedPosition.realized_pnl_sol + realizedPnLSol).toFixed(15));
+      updatedPosition.realized_pnl_usd = Number((updatedPosition.realized_pnl_usd + realizedPnLUsd).toFixed(8));
     }
 
     // 更新当前价格
@@ -266,19 +311,19 @@ export class PositionModel {
   static formatForDisplay(position: Position) {
     return {
       ...position,
-      total_buy_cost_sol: Number(position.total_buy_cost_sol.toFixed(6)),
-      total_buy_cost_usd: Number(position.total_buy_cost_usd.toFixed(2)),
-      total_sell_value_sol: Number(position.total_sell_value_sol.toFixed(6)),
-      total_sell_value_usd: Number(position.total_sell_value_usd.toFixed(2)),
-      avg_buy_price_sol: Number(position.avg_buy_price_sol.toFixed(8)),
-      avg_buy_price_usd: Number(position.avg_buy_price_usd.toFixed(6)),
+      total_buy_cost_sol: Number(position.total_buy_cost_sol.toFixed(15)),
+      total_buy_cost_usd: Number(position.total_buy_cost_usd.toFixed(8)),
+      total_sell_value_sol: Number(position.total_sell_value_sol.toFixed(15)),
+      total_sell_value_usd: Number(position.total_sell_value_usd.toFixed(8)),
+      avg_buy_price_sol: Number(position.avg_buy_price_sol.toFixed(15)),
+      avg_buy_price_usd: Number(position.avg_buy_price_usd.toFixed(12)),
       current_amount: Number(position.current_amount.toFixed(6)),
-      realized_pnl_sol: Number(position.realized_pnl_sol.toFixed(6)),
-      realized_pnl_usd: Number(position.realized_pnl_usd.toFixed(2)),
-      unrealized_pnl_sol: Number(position.unrealized_pnl_sol.toFixed(6)),
-      unrealized_pnl_usd: Number(position.unrealized_pnl_usd.toFixed(2)),
-      current_price_sol: Number(position.current_price_sol.toFixed(8)),
-      current_price_usd: Number(position.current_price_usd.toFixed(6))
+      realized_pnl_sol: Number(position.realized_pnl_sol.toFixed(15)),
+      realized_pnl_usd: Number(position.realized_pnl_usd.toFixed(8)),
+      unrealized_pnl_sol: Number(position.unrealized_pnl_sol.toFixed(15)),
+      unrealized_pnl_usd: Number(position.unrealized_pnl_usd.toFixed(8)),
+      current_price_sol: Number(position.current_price_sol.toFixed(15)),
+      current_price_usd: Number(position.current_price_usd.toFixed(12))
     };
   }
 } 

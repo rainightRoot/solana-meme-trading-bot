@@ -1,7 +1,7 @@
 import { solanaLogger } from '../logging';
 import { getProxyAgent } from './fetch';
 import { withRetry, RETRY_CONFIGS } from '../retry';
-import fetch from 'node-fetch';
+import fetch from 'cross-fetch';
 
 
 

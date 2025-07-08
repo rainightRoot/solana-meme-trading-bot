@@ -35,6 +35,7 @@ import {
 import ConfigPanel from './components/ConfigPanel';
 import PositionPanel from './components/PositionPanel';
 import MonitoringPanel from './components/MonitoringPanel';
+import { formatSOLPrice } from './utils/priceFormatter';
 
 const { Header, Content } = Layout;
 const { Title, Text } = Typography;
@@ -181,7 +182,7 @@ export default function App() {
       setStartWatcherLoading(true);
       await window.electronAPI.clearQueue('SlotUpdate');
       await window.electronAPI.startConsumers();
-      // await window.electronAPI.startWatcher();
+      await window.electronAPI.startWatcher();
       setConsumersRunning(true);
       getWatcherStatus();
     } catch (error) {
@@ -495,13 +496,14 @@ export default function App() {
 
                 <Col xs={24} sm={12} lg={6}>
                   <Card size="small" bordered={false} style={{ background: '#fafafa' }}>
-                    <Statistic
-                      title={<Space><WalletOutlined />钱包信息</Space>}
-                      value={walletInfo?.balance || 0}
-                      precision={4}
-                      suffix="SOL"
-                      valueStyle={{ fontSize: '16px', color: '#52c41a' }}
-                    />
+                    <div>
+                      <div style={{ marginBottom: '8px', color: '#666', fontSize: '14px' }}>
+                        <Space><WalletOutlined />钱包信息</Space>
+                      </div>
+                      <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#52c41a' }}>
+                        {formatSOLPrice(walletInfo?.balance || 0)}
+                      </div>
+                    </div>
                     <Divider style={{ margin: '8px 0' }} />
                     <div style={{ fontSize: '12px', color: '#666', display: 'flex', alignItems: 'center', gap: '4px' }}>
                       <Text type="secondary">地址:</Text>
