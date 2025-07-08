@@ -102,7 +102,10 @@ export class ProcessManager extends EventEmitter {
         stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
         env: {
           ...process.env,
-          NODE_ENV: process.env.NODE_ENV || 'development'
+          NODE_ENV: process.env.NODE_ENV || 'development',
+          // 传递日志配置
+          LOG_LEVEL: process.env.LOG_LEVEL || 'info',
+          LOG_CONTEXT: 'ChildProcess'
         }
       });
 
@@ -126,6 +129,30 @@ export class ProcessManager extends EventEmitter {
           this.processes.set(processId, processInfo);
           this.emit('processReady', processId);
           resolve(processInfo);
+          return;
+        }
+
+        // 处理子进程的日志消息
+        if (message.type === 'log') {
+          const { level, context, message: logMessage, args } = message;
+          const contextPrefix = `[${processId}][${context}]`;
+          
+          switch (level) {
+            case 'debug':
+              queueLogger.debug(`${contextPrefix} ${logMessage}`, ...(args || []));
+              break;
+            case 'info':
+              queueLogger.info(`${contextPrefix} ${logMessage}`, ...(args || []));
+              break;
+            case 'warn':
+              queueLogger.warn(`${contextPrefix} ${logMessage}`, ...(args || []));
+              break;
+            case 'error':
+              queueLogger.error(`${contextPrefix} ${logMessage}`, ...(args || []));
+              break;
+            default:
+              queueLogger.info(`${contextPrefix} ${logMessage}`, ...(args || []));
+          }
           return;
         }
 
